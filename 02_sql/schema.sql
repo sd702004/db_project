@@ -35,6 +35,8 @@ CREATE TABLE video (
 	FOREIGN KEY (userid) REFERENCES users(userid)
 );
 
+CREATE INDEX ON video (name);
+
 CREATE TABLE video_watch (
 	watch_id SERIAL PRIMARY KEY,
 	video_id SERIAL NOT NULL,
@@ -54,6 +56,8 @@ CREATE TABLE channel (
 
 	FOREIGN KEY (userid) REFERENCES users(userid)
 );
+
+CREATE INDEX ON channel (name);
 
 CREATE TABLE channel_subscription (
 	channel_id SERIAL,
@@ -116,6 +120,8 @@ CREATE TABLE playlist (
 	UNIQUE(userid, name),
 	FOREIGN KEY (userid) REFERENCES users(userid)
 );
+
+CREATE INDEX ON playlist (name);
 
 CREATE TABLE playlist_video (
 	list_id SERIAL NOT NULL,
