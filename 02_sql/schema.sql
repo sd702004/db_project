@@ -24,7 +24,7 @@ CREATE TABLE users (
 
 CREATE TABLE video (
 	video_id SERIAL PRIMARY KEY,
-	userid SERIAL NOT NULL, /* video owner */
+	userid INTEGER NOT NULL, /* video owner */
 	name VARCHAR(50) NOT NULL,
 	filename VARCHAR(50) NOT NULL,
 	description TEXT NOT NULL,
@@ -39,8 +39,8 @@ CREATE INDEX ON video (name);
 
 CREATE TABLE video_watch (
 	watch_id SERIAL PRIMARY KEY,
-	video_id SERIAL NOT NULL,
-	userid SERIAL NOT NULL,
+	video_id INTEGER NOT NULL,
+	userid INTEGER NOT NULL,
 	watch_date TIMESTAMP NOT NULL,
 
 	FOREIGN KEY (video_id) REFERENCES video(video_id),
@@ -49,7 +49,7 @@ CREATE TABLE video_watch (
 
 CREATE TABLE channel (
 	channel_id SERIAL PRIMARY KEY,
-	userid SERIAL NOT NULL, /* channel owner */
+	userid INTEGER NOT NULL, /* channel owner */
 	name VARCHAR(50) NOT NULL,
 	description TEXT NOT NULL,
 	creation_date TIMESTAMP NOT NULL,
@@ -60,8 +60,8 @@ CREATE TABLE channel (
 CREATE INDEX ON channel (name);
 
 CREATE TABLE channel_subscription (
-	channel_id SERIAL,
-	userid SERIAL,
+	channel_id INTEGER,
+	userid INTEGER,
 
 	PRIMARY KEY (channel_id, userid),
 	FOREIGN KEY (userid) REFERENCES users(userid),
@@ -69,8 +69,8 @@ CREATE TABLE channel_subscription (
 );
 
 CREATE TABLE channel_video (
-	video_id SERIAL PRIMARY KEY,
-	channel_id SERIAL NOT NULL,
+	video_id INTEGER PRIMARY KEY,
+	channel_id INTEGER NOT NULL,
 
 	FOREIGN KEY (video_id) REFERENCES video(video_id),
 	FOREIGN KEY (channel_id) REFERENCES channel(channel_id)
@@ -78,9 +78,9 @@ CREATE TABLE channel_video (
 
 CREATE TABLE comments (
 	comment_id SERIAL PRIMARY KEY,
-	userid SERIAL NOT NULL,
-	video_id SERIAL NOT NULL,
-	parent_id SERIAL,
+	userid INTEGER NOT NULL,
+	video_id INTEGER NOT NULL,
+	parent_id INTEGER,
 	comment TEXT NOT NULL,
 	submit_date TIMESTAMP NOT NULL,
 
@@ -92,8 +92,8 @@ CREATE TABLE comments (
 CREATE TYPE SCORE_T AS ENUM('like','dislike');
 
 CREATE TABLE video_score (
-	video_id SERIAL NOT NULL,
-	userid SERIAL NOT NULL,
+	video_id INTEGER NOT NULL,
+	userid INTEGER NOT NULL,
 	score SCORE_T NOT NULL DEFAULT 'like',
 
 	PRIMARY KEY (video_id, userid),
@@ -102,8 +102,8 @@ CREATE TABLE video_score (
 );
 
 CREATE TABLE comment_score (
-	comment_id SERIAL,
-	userid SERIAL,
+	comment_id INTEGER,
+	userid INTEGER,
 	score SCORE_T NOT NULL DEFAULT 'like',
 
 	PRIMARY KEY (comment_id, userid),
@@ -113,7 +113,7 @@ CREATE TABLE comment_score (
 
 CREATE TABLE playlist (
 	list_id SERIAL PRIMARY KEY,
-	userid SERIAL NOT NULL,
+	userid INTEGER NOT NULL,
 	name VARCHAR(50) NOT NULL,
 	is_public BOOLEAN NOT NULL DEFAULT FALSE,
 
@@ -124,8 +124,8 @@ CREATE TABLE playlist (
 CREATE INDEX ON playlist (name);
 
 CREATE TABLE playlist_video (
-	list_id SERIAL NOT NULL,
-	video_id SERIAL NOT NULL,
+	list_id INTEGER NOT NULL,
+	video_id INTEGER NOT NULL,
 
 	PRIMARY KEY (list_id, video_id),
 	FOREIGN KEY (list_id) REFERENCES playlist(list_id),
