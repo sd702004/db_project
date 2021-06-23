@@ -68,12 +68,22 @@ CREATE TABLE channel_subscription (
 	FOREIGN KEY (channel_id) REFERENCES channel(channel_id)
 );
 
+/* check video owner = channel owner */
+CREATE OR REPLACE FUNCTION is_eq_vid_chnl_owner(vid_id INTEGER, chl_id INTEGER) RETURNS BOOLEAN AS $$
+	BEGIN
+		RETURN ( SELECT (SELECT userid FROM video WHERE video_id=vid_id)
+		IN (SELECT userid FROM channel WHERE channel_id=chl_id) );
+	END;
+$$ LANGUAGE plpgsql;
+
 CREATE TABLE channel_video (
 	video_id INTEGER PRIMARY KEY,
 	channel_id INTEGER NOT NULL,
 
-	FOREIGN KEY (video_id) REFERENCES video(video_id),
-	FOREIGN KEY (channel_id) REFERENCES channel(channel_id)
+	FOREIGN KEY (video_id) REFERENCES video(video_id) ON DELETE CASCADE,
+	FOREIGN KEY (channel_id) REFERENCES channel(channel_id) ON DELETE CASCADE,
+
+	CHECK (is_eq_vid_chnl_owner(video_id, channel_id) = TRUE)
 );
 
 CREATE TABLE comments (
@@ -84,9 +94,9 @@ CREATE TABLE comments (
 	comment TEXT NOT NULL,
 	submit_date TIMESTAMP NOT NULL,
 
-	FOREIGN KEY (video_id) REFERENCES video(video_id),
+	FOREIGN KEY (video_id) REFERENCES video(video_id) ON DELETE CASCADE,
 	FOREIGN KEY (userid) REFERENCES users(userid),
-	FOREIGN KEY (parent_id) REFERENCES comments(comment_id)
+	FOREIGN KEY (parent_id) REFERENCES comments(comment_id) ON DELETE SET NULL
 );
 
 CREATE TYPE SCORE_T AS ENUM('like','dislike');
@@ -133,6 +143,8 @@ CREATE TABLE playlist_video (
 );
 
 /* triggers [begin] */
+
+/* create default playlist */
 CREATE OR REPLACE FUNCTION create_watch_later() RETURNS TRIGGER AS
 $$
 BEGIN
@@ -148,6 +160,28 @@ LANGUAGE plpgsql;
 CREATE TRIGGER dflt_plst AFTER INSERT ON users
 FOR EACH ROW
 EXECUTE PROCEDURE create_watch_later();
+
+/* delete videos before deleting channel */
+CREATE OR REPLACE FUNCTION delete_channel_videos() RETURNS TRIGGER AS
+$$
+BEGIN
+	DELETE FROM video WHERE
+	video_id IN (
+	SELECT video_id FROM channel
+	INNER JOIN channel_video USING(channel_id)
+	WHERE channel_id = old.channel_id
+	);
+
+	RETURN old;
+
+END;
+$$
+LANGUAGE plpgsql;
+
+CREATE TRIGGER chnl_dlt BEFORE DELETE ON channel
+FOR EACH ROW
+EXECUTE PROCEDURE delete_channel_videos();
+
 /* trigers [end] */
 
 COMMIT;
