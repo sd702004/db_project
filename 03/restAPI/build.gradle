@@ -1,0 +1,22 @@
+apply plugin: 'java'
+apply plugin: 'application'
+
+repositories {
+	mavenCentral()
+}
+
+dependencies{
+	compile 'org.postgresql:postgresql:42.2.22'
+	compile 'org.json:json:20210307'
+	compile 'com.zaxxer:HikariCP:4.0.3'
+}
+
+sourceSets {
+	main{
+		java{
+			srcDirs = ['src']
+		}
+	}
+}
+
+mainClassName = 'App'

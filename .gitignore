@@ -5,3 +5,5 @@ __pycache__/
 
 # vim swap
 *.swp
+.gradle
+03/restAPI/build/
