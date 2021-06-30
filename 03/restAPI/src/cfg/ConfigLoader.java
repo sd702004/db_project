@@ -57,6 +57,14 @@ public class ConfigLoader {
 
 		config_data.db_password = val;
 
+		// db name
+		if ( (val = config.get("db_name")) == null ){
+			System.err.printf(error_msg, "db_name");
+			return false;
+		}
+
+		config_data.db_name = val;
+
 		// db port
 		if ( (val = config.get("db_port")) == null ){
 			System.err.printf(error_msg, "db_port");
@@ -84,5 +92,9 @@ public class ConfigLoader {
 		}
 
 		return true;
+	}
+
+	public Config getConfigData(){
+		return config_data;
 	}
 }
