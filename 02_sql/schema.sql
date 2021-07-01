@@ -15,7 +15,7 @@ DROP TYPE IF EXISTS SCORE_T;
 
 CREATE TABLE users (
 	userid SERIAL PRIMARY KEY,
-	username VARCHAR(30) UNIQUE NOT NULL,
+	username VARCHAR(30) UNIQUE NOT NULL CHECK(char_length(username) > 3),
 	password CHAR(34) NOT NULL, /* MD5-based crypt */
 	email VARCHAR(50) UNIQUE NOT NULL,
 	reg_date TIMESTAMP NOT NULL,
