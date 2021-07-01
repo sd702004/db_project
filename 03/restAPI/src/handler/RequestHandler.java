@@ -60,15 +60,6 @@ public class RequestHandler implements HttpHandler {
 			System.err.printf("sending data failed [%s]\n", e.getMessage());
 		}
 
-		/*
-		try{
-			Connection conn = dbhandler.getConnection();
-			conn.close();
-		} catch (Exception e){
-			System.out.println(e);
-		}
-		*/
-
 		ex.close();
 	}
 
@@ -99,6 +90,7 @@ public class RequestHandler implements HttpHandler {
 	private void initRequestHashMap(){
 		func_map = new HashMap<String, BiFunction<HttpExchange, JSONObject, RequestResult>>();
 		func_map.put("register", (HttpExchange ex, JSONObject data) -> {return userRegister(ex, data);});
+		func_map.put("login", (HttpExchange ex, JSONObject data) -> {return userLogin(ex, data);});
 	}
 
 	private RequestResult createFailedResult(String error){
@@ -181,7 +173,6 @@ public class RequestHandler implements HttpHandler {
 			conn.close();
 		} catch (SQLException e){
 			sql_error = true;
-
 		}
 
 		if (sql_error){
@@ -203,6 +194,99 @@ public class RequestHandler implements HttpHandler {
 		result.response.put("msg", "new user created");
 		result.response.put("username", username);
 		result.response.put("email", email);
+
+		return result;
+	}
+
+	private RequestResult userLogin(HttpExchange ex, JSONObject data){
+		String username;
+		String password;
+
+		try {
+			username = data.getString("username").trim();
+			password = data.getString("password");
+		} catch (JSONException e){
+			return createFailedResult("missing parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		if (username.isEmpty())
+			return createFailedResult("username is empty");
+
+		if (password.isEmpty())
+			return createFailedResult("password is empty");
+
+		Connection conn = null;
+		boolean sql_error = false;
+
+		int userid = 0;
+		String token = null;
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			// check username & password
+			stmt = conn.prepareStatement("SELECT userid FROM users WHERE username=? AND password=crypt(?, password)");
+			stmt.setString(1, username);
+			stmt.setString(2, password);
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+
+			userid = sql_result.getInt(1);
+
+			if (userid == 0){
+				conn.close();
+				return createFailedResult("invalid username/password");
+			}
+
+			// generate token
+			stmt = conn.prepareStatement("SELECT encode(digest(now()::text || random() || ?, ?), ?)");
+			stmt.setInt(1, userid);
+			stmt.setString(2, "sha224");
+			stmt.setString(3, "hex");
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+
+			token = sql_result.getString(1);
+
+			conn.setAutoCommit(false);
+
+			stmt = conn.prepareStatement("DELETE FROM userlogin WHERE userid = ?");
+			stmt.setInt(1, userid);
+			stmt.execute();
+
+			stmt = conn.prepareStatement("INSERT INTO userlogin values(?, decode(?, ?))");
+			stmt.setInt(1, userid);
+			stmt.setString(2, token);
+			stmt.setString(3, "hex");
+			stmt.execute();
+
+			conn.commit();
+
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+			return createFailedResult("internal server error");
+		}
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+
+		result.response_code = HttpURLConnection.HTTP_OK;
+		result.response.put("result", true);
+		result.response.put("msg", "successful login");
+		result.response.put("token", String.format("%d,%s", userid, token));
 
 		return result;
 	}

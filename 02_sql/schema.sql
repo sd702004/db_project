@@ -10,6 +10,7 @@ DROP TABLE IF EXISTS video;
 DROP TABLE IF EXISTS channel_subscription;
 DROP TABLE IF EXISTS channel;
 DROP TABLE IF EXISTS playlist;
+DROP TABLE IF EXISTS userlogin;
 DROP TABLE IF EXISTS users;
 DROP TYPE IF EXISTS SCORE_T;
 
@@ -20,6 +21,13 @@ CREATE TABLE users (
 	email VARCHAR(50) UNIQUE NOT NULL,
 	reg_date TIMESTAMP NOT NULL,
 	has_avatar BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE userlogin (
+	userid INTEGER PRIMARY KEY,
+	token bytea,
+
+	FOREIGN KEY (userid) REFERENCES users(userid)
 );
 
 CREATE TABLE video (
