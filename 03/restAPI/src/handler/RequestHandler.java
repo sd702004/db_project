@@ -93,6 +93,8 @@ public class RequestHandler implements HttpHandler {
 		func_map.put("register", (HttpExchange ex, JSONObject data) -> {return userRegister(ex, data);});
 		func_map.put("login", (HttpExchange ex, JSONObject data) -> {return userLogin(ex, data);});
 		func_map.put("logout", (HttpExchange ex, JSONObject data) -> {return userLogout(ex, data);});
+		func_map.put("newvideo", (HttpExchange ex, JSONObject data) -> {return uploadVideo(ex, data);});
+		func_map.put("deletevideo", (HttpExchange ex, JSONObject data) -> {return deleteVideo(ex, data);});
 	}
 
 	private RequestResult createFailedResult(String error){
@@ -397,5 +399,143 @@ public class RequestHandler implements HttpHandler {
 		}
 
 		return userid;
+	}
+
+	private RequestResult uploadVideo(HttpExchange ex, JSONObject data){
+		int userid = getUserID(ex);
+
+		if (userid == 0)
+			return createFailedResult("access denied", HttpURLConnection.HTTP_FORBIDDEN);
+
+		String video_title;
+		String file_name;
+		String description;
+
+		try {
+			video_title = data.getString("title").trim();
+			file_name = data.getString("filename");
+			description = data.getString("description").trim();
+		} catch (JSONException e){
+			return createFailedResult("missing parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		if (video_title.isEmpty())
+			return createFailedResult("title is empty");
+
+		if (video_title.length() > 50)
+			return createFailedResult("title length is larger than 50");
+
+		if (file_name.isEmpty())
+			return createFailedResult("filename is empty");
+
+		if (description.isEmpty())
+			return createFailedResult("description is empty");
+
+		Connection conn = null;
+		boolean sql_error = false;
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			String query = "INSERT INTO video(userid, name, filename, description, duration, upload_date)"
+				+ "VALUES (?, ?, ?, ?, ?, now())";
+
+			stmt = conn.prepareStatement(query);
+			stmt.setInt(1, userid);
+			stmt.setString(2, video_title);
+			stmt.setString(3, file_name);
+			stmt.setString(4, description);
+			stmt.setInt(5, 60); // this is symbolic
+
+			stmt.executeUpdate();
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+
+			return createFailedResult("internal server error");
+		}
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+
+		result.response_code = HttpURLConnection.HTTP_OK;
+		result.response.put("result", true);
+		result.response.put("msg", "video has been uploaded");
+
+		return result;
+	}
+
+	private RequestResult deleteVideo(HttpExchange ex, JSONObject data){
+		int userid = getUserID(ex);
+
+		if (userid == 0)
+			return createFailedResult("access denied", HttpURLConnection.HTTP_FORBIDDEN);
+
+		int videoid = 0;
+
+		try {
+			videoid = data.getInt("videoid");
+
+			if (videoid < 1)
+				return createFailedResult("invalid videoid");
+		} catch (JSONException e){
+			return createFailedResult("missing parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		Connection conn = null;
+		boolean sql_error = false;
+		boolean delete_okay = false;
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			stmt = conn.prepareStatement("DELETE FROM video WHERE userid=? AND video_id=?");
+			stmt.setInt(1, userid);
+			stmt.setInt(2, videoid);
+
+			delete_okay = (stmt.executeUpdate() != 0);
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+
+			return createFailedResult("internal server error");
+		}
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+
+		result.response_code = HttpURLConnection.HTTP_OK;
+		result.response.put("result", delete_okay);
+
+		if (delete_okay)
+			result.response.put("msg", "video has been deleted");
+		else
+			result.response.put("msg", "video not found");
+
+		return result;
 	}
 }
