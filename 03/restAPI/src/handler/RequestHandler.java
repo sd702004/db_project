@@ -2,6 +2,7 @@ package handler;
 
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.Headers;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.PreparedStatement;
@@ -38,7 +39,7 @@ public class RequestHandler implements HttpHandler {
 		} else {
 			JSONObject json = getReqParams(ex);
 
-			if (json != null){
+			if (json != null || ex.getRequestMethod().equals("GET") ){
 				result = handler_function.apply(ex, json);
 			} else {
 				result = new RequestResult();
@@ -91,6 +92,7 @@ public class RequestHandler implements HttpHandler {
 		func_map = new HashMap<String, BiFunction<HttpExchange, JSONObject, RequestResult>>();
 		func_map.put("register", (HttpExchange ex, JSONObject data) -> {return userRegister(ex, data);});
 		func_map.put("login", (HttpExchange ex, JSONObject data) -> {return userLogin(ex, data);});
+		func_map.put("logout", (HttpExchange ex, JSONObject data) -> {return userLogout(ex, data);});
 	}
 
 	private RequestResult createFailedResult(String error){
@@ -289,5 +291,111 @@ public class RequestHandler implements HttpHandler {
 		result.response.put("token", String.format("%d,%s", userid, token));
 
 		return result;
+	}
+
+	private RequestResult userLogout(HttpExchange ex, JSONObject data){
+		int userid = getUserID(ex);
+
+		if (userid == 0)
+			return createFailedResult("access denied", HttpURLConnection.HTTP_FORBIDDEN);
+
+		Connection conn = null;
+		boolean sql_error = false;
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			stmt = conn.prepareStatement("DELETE FROM userlogin WHERE userid=?");
+			stmt.setInt(1, userid);
+			stmt.execute();
+
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+			return createFailedResult("internal server error");
+		}
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+
+		result.response_code = HttpURLConnection.HTTP_OK;
+		result.response.put("result", true);
+		result.response.put("msg", "successfully logged out");
+
+		return result;
+	}
+
+	private int getUserID(HttpExchange ex){
+		// returns userid if login or 0 if not login
+		Headers headers = ex.getRequestHeaders();
+
+		if (!headers.containsKey("X-token"))
+			return 0;
+
+		String[] token_list = headers.get("X-token").get(0).split(",");
+
+		if (token_list.length != 2)
+			return 0;
+
+		int userid = 0;
+
+		try {
+			userid = Integer.parseInt(token_list[0]);
+
+			if (userid < 1)
+				return 0;
+		} catch (NumberFormatException e){
+			return 0;
+		}
+
+		String token = token_list[1];
+
+		Connection conn = null;
+		boolean sql_error = false;
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			stmt = conn.prepareStatement("SELECT userid FROM userlogin WHERE userid=? AND encode(token,?)=?");
+			stmt.setInt(1, userid);
+			stmt.setString(2, "hex");
+			stmt.setString(3, token);
+
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+			userid = sql_result.getInt(1);
+
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+
+			return 0;
+		}
+
+		return userid;
 	}
 }
