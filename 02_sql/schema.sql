@@ -39,7 +39,6 @@ CREATE TABLE video (
 	duration INTEGER NOT NULL CHECK (duration > 0) /* unit: seconds */,
 	upload_date TIMESTAMP NOT NULL,
 
-	UNIQUE(userid, name),
 	FOREIGN KEY (userid) REFERENCES users(userid)
 );
 
