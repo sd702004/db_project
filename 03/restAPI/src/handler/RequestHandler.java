@@ -7,6 +7,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Types;
 import java.util.HashMap;
 import java.util.function.BiFunction;
 import java.io.*;
@@ -97,6 +98,8 @@ public class RequestHandler implements HttpHandler {
 		func_map.put("deletevideo", (HttpExchange ex, JSONObject data) -> {return deleteVideo(ex, data);});
 		func_map.put("newchannel", (HttpExchange ex, JSONObject data) -> {return createChannel(ex, data);});
 		func_map.put("deletechannel", (HttpExchange ex, JSONObject data) -> {return deleteChannel(ex, data);});
+		func_map.put("addcomment", (HttpExchange ex, JSONObject data) -> {return addComment(ex, data);});
+		func_map.put("removecomment", (HttpExchange ex, JSONObject data) -> {return removeComment(ex, data);});
 	}
 
 	private RequestResult createFailedResult(String error){
@@ -625,7 +628,7 @@ public class RequestHandler implements HttpHandler {
 			if (channel_id < 1)
 				return createFailedResult("invalid channel_id");
 		} catch (JSONException e){
-			return createFailedResult("missing/inavalid parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+			return createFailedResult("missing/invalid parameters", HttpURLConnection.HTTP_BAD_REQUEST);
 		}
 
 		Connection conn = null;
@@ -671,6 +674,178 @@ public class RequestHandler implements HttpHandler {
 			result.response.put("msg", "channel not found");
 
 		return result;
+	}
+
+	private RequestResult addComment(HttpExchange ex, JSONObject data){
+		int userid = getUserID(ex);
+
+		if (userid == 0)
+			return createFailedResult("access denied", HttpURLConnection.HTTP_FORBIDDEN);
+
+		int video_id;
+		int reply_to = 0;
+		String comment;
+
+		try {
+			video_id = data.getInt("videoid");
+			comment = data.getString("comment").trim();
+		} catch (JSONException e){
+			return createFailedResult("missing/invalid parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		if (video_id < 1)
+			return createFailedResult("invalid video_id");
+
+		if (comment.isEmpty())
+			return createFailedResult("empty comment");
+
+		if (data.has("reply_to")){
+			try {
+				reply_to = data.getInt("reply_to");
+
+				if (reply_to < 0)
+					return createFailedResult("invalid reply_to");
+			} catch (JSONException e){
+				return createFailedResult("invalid reply_to parameter", HttpURLConnection.HTTP_BAD_REQUEST);
+			}
+		}
+
+		Connection conn = null;
+		boolean sql_error = false;
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			// check videoid
+			stmt = conn.prepareStatement("SELECT COUNT(*) FROM video WHERE video_id = ?");
+			stmt.setInt(1, video_id);
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+
+			if (sql_result.getInt(1) != 1){
+				conn.close();
+				return createFailedResult(String.format("videoid %d doesn't exist", video_id));
+			}
+
+			// check reply_to
+			if (reply_to > 0){
+				stmt = conn.prepareStatement("SELECT COUNT(*) FROM comments WHERE comment_id = ?");
+				stmt.setInt(1, reply_to);
+				sql_result = stmt.executeQuery();
+				sql_result.next();
+
+				if (sql_result.getInt(1) != 1){
+					conn.close();
+					return createFailedResult(String.format("comment_id %d doesn't exist", reply_to));
+				}
+			}
+
+			// submit
+			String query = "INSERT INTO comments(userid, video_id, parent_id, comment, submit_date)"
+				+ "VALUES (?, ?, ?, ?, now())";
+			stmt = conn.prepareStatement(query);
+			stmt.setInt(1, userid);
+			stmt.setInt(2, video_id);
+
+			if (reply_to > 0)
+				stmt.setInt(3, reply_to);
+			else
+				stmt.setNull(3, java.sql.Types.NULL);
+			stmt.setString(4, comment);
+
+			stmt.executeUpdate();
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+			System.out.println(e);
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+
+			return createFailedResult("internal server error");
+		}
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+
+		result.response_code = HttpURLConnection.HTTP_OK;
+		result.response.put("result", true);
+		result.response.put("msg", "comment has been submited");
+
+		return result;
 
 	}
+
+	private RequestResult removeComment(HttpExchange ex, JSONObject data){
+		int userid = getUserID(ex);
+
+		if (userid == 0)
+			return createFailedResult("access denied", HttpURLConnection.HTTP_FORBIDDEN);
+
+		int comment_id;
+
+		try {
+			comment_id = data.getInt("comment_id");
+
+			if (comment_id < 1)
+				return createFailedResult("invalid comment_id");
+		} catch (JSONException e){
+			return createFailedResult("missing/invalid parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		Connection conn = null;
+		boolean sql_error = false;
+		boolean delete_okay = false;
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			stmt = conn.prepareStatement("DELETE FROM comments WHERE userid=? AND comment_id=?");
+			stmt.setInt(1, userid);
+			stmt.setInt(2, comment_id);
+
+			delete_okay = (stmt.executeUpdate() != 0);
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+
+			return createFailedResult("internal server error");
+		}
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+
+		result.response_code = HttpURLConnection.HTTP_OK;
+		result.response.put("result", delete_okay);
+
+		if (delete_okay)
+			result.response.put("msg", "comment has been deleted");
+		else
+			result.response.put("msg", "comment not found");
+
+		return result;
+	}
+
+
 }
