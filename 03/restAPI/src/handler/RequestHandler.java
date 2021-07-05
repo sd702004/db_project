@@ -95,6 +95,8 @@ public class RequestHandler implements HttpHandler {
 		func_map.put("logout", (HttpExchange ex, JSONObject data) -> {return userLogout(ex, data);});
 		func_map.put("newvideo", (HttpExchange ex, JSONObject data) -> {return uploadVideo(ex, data);});
 		func_map.put("deletevideo", (HttpExchange ex, JSONObject data) -> {return deleteVideo(ex, data);});
+		func_map.put("newchannel", (HttpExchange ex, JSONObject data) -> {return createChannel(ex, data);});
+		func_map.put("deletechannel", (HttpExchange ex, JSONObject data) -> {return deleteChannel(ex, data);});
 	}
 
 	private RequestResult createFailedResult(String error){
@@ -491,7 +493,7 @@ public class RequestHandler implements HttpHandler {
 			if (videoid < 1)
 				return createFailedResult("invalid videoid");
 		} catch (JSONException e){
-			return createFailedResult("missing parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+			return createFailedResult("missing/invalid parameters", HttpURLConnection.HTTP_BAD_REQUEST);
 		}
 
 		Connection conn = null;
@@ -537,5 +539,138 @@ public class RequestHandler implements HttpHandler {
 			result.response.put("msg", "video not found");
 
 		return result;
+	}
+
+	private RequestResult createChannel(HttpExchange ex, JSONObject data){
+		int userid = getUserID(ex);
+
+		if (userid == 0)
+			return createFailedResult("access denied", HttpURLConnection.HTTP_FORBIDDEN);
+
+		String name;
+		String description;
+		String image_name; // image will rename to <userid>_<channelid>.jpg after upload
+
+		try {
+			name = data.getString("name").trim();
+			description = data.getString("description").trim();
+			image_name = data.getString("imagename").trim();
+		} catch (JSONException e){
+			return createFailedResult("missing parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		if (name.isEmpty())
+			return createFailedResult("name is empty");
+
+		if (name.length() > 50)
+			return createFailedResult("channel name length is larger than 50");
+
+		if (description.isEmpty())
+			return createFailedResult("description is empty");
+
+		if (image_name.isEmpty())
+			return createFailedResult("image_name is empty");
+
+		Connection conn = null;
+		boolean sql_error = false;
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+
+			stmt = conn.prepareStatement("INSERT INTO channel(userid, name, description, creation_date) VALUES (?,?,?,now())");
+			stmt.setInt(1, userid);
+			stmt.setString(2, name);
+			stmt.setString(3, description);
+
+			stmt.executeUpdate();
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+
+			return createFailedResult("internal server error");
+		}
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+
+		result.response_code = HttpURLConnection.HTTP_OK;
+		result.response.put("result", true);
+		result.response.put("msg", "channel has been created");
+
+		return result;
+	}
+
+	private RequestResult deleteChannel(HttpExchange ex, JSONObject data){
+		int userid = getUserID(ex);
+
+		if (userid == 0)
+			return createFailedResult("access denied", HttpURLConnection.HTTP_FORBIDDEN);
+
+		int channel_id = 0;
+
+		try {
+			channel_id = data.getInt("channel_id");
+
+			if (channel_id < 1)
+				return createFailedResult("invalid channel_id");
+		} catch (JSONException e){
+			return createFailedResult("missing/inavalid parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		Connection conn = null;
+		boolean sql_error = false;
+		boolean delete_okay = false;
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			stmt = conn.prepareStatement("DELETE FROM channel WHERE userid=? AND channel_id=?");
+			stmt.setInt(1, userid);
+			stmt.setInt(2, channel_id);
+
+			delete_okay = (stmt.executeUpdate() != 0);
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+
+			return createFailedResult("internal server error");
+		}
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+
+		result.response_code = HttpURLConnection.HTTP_OK;
+		result.response.put("result", delete_okay);
+
+		if (delete_okay)
+			result.response.put("msg", "channel has been deleted");
+		else
+			result.response.put("msg", "channel not found");
+
+		return result;
+
 	}
 }
