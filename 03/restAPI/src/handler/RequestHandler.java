@@ -102,6 +102,9 @@ public class RequestHandler implements HttpHandler {
 		func_map.put("removecomment", (HttpExchange ex, JSONObject data) -> {return removeComment(ex, data);});
 		func_map.put("scorevideo", (HttpExchange ex, JSONObject data) -> {return scoreVideo(ex, data);});
 		func_map.put("scorecomment", (HttpExchange ex, JSONObject data) -> {return scoreComment(ex, data);});
+		func_map.put("newplaylist", (HttpExchange ex, JSONObject data) -> {return addPlaylist(ex, data);});
+		func_map.put("vidplaylist", (HttpExchange ex, JSONObject data) -> {return videoPlaylist(ex, data);});
+		func_map.put("mngplaylist", (HttpExchange ex, JSONObject data) -> {return managePlaylist(ex, data);});
 	}
 
 	private RequestResult createFailedResult(String error){
@@ -1062,6 +1065,304 @@ public class RequestHandler implements HttpHandler {
 			result.response.put("result", false);
 			result.response.put("msg", "no score found");
 		}
+
+		return result;
+	}
+
+	private RequestResult addPlaylist(HttpExchange ex, JSONObject data){
+		int userid = getUserID(ex);
+
+		if (userid == 0)
+			return createFailedResult("access denied", HttpURLConnection.HTTP_FORBIDDEN);
+
+		String listname;
+
+		try {
+			listname = data.getString("listname").trim();
+		} catch (JSONException e){
+			return createFailedResult("missing parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		if (listname.isEmpty())
+			return createFailedResult("listname is empty");
+
+		if (listname.length() > 50)
+			return createFailedResult("listname length is larger than 50");
+
+		Connection conn = null;
+		boolean sql_error = false;
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			// check if playlist exists
+			stmt = conn.prepareStatement("SELECT COUNT(*) FROM playlist WHERE userid=? AND name=?");
+			stmt.setInt(1, userid);
+			stmt.setString(2, listname);
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+
+			if (sql_result.getInt(1) == 1){
+				conn.close();
+				return createFailedResult(String.format("'%s' already exists", listname));
+			}
+
+			// create playlist
+			stmt = conn.prepareStatement("INSERT INTO playlist(userid,name) VALUES(?,?)");
+			stmt.setInt(1, userid);
+			stmt.setString(2, listname);
+			stmt.executeUpdate();
+
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+			return createFailedResult("internal server error");
+		}
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+
+		result.response_code = HttpURLConnection.HTTP_OK;
+		result.response.put("result", true);
+		result.response.put("msg", "new list created");
+
+		return result;
+	}
+
+	private RequestResult videoPlaylist(HttpExchange ex, JSONObject data){
+		int userid = getUserID(ex);
+
+		if (userid == 0)
+			return createFailedResult("access denied", HttpURLConnection.HTTP_FORBIDDEN);
+
+		String method;
+		int videoid;
+		int listid;
+
+		try {
+			listid = data.getInt("listid");
+			videoid = data.getInt("videoid");
+			method = data.getString("method").trim().toLowerCase();
+		} catch (JSONException e){
+			return createFailedResult("missing/invalid parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		if (method.isEmpty())
+			return createFailedResult("method is empty");
+
+		if (!method.equals("add") && !method.equals("remove"))
+			return createFailedResult("invalid method. must be 'add' or 'remove'");
+
+		if (videoid < 1)
+			return createFailedResult("invalid videoid");
+
+		if (listid < 1)
+			return createFailedResult("invalid listid");
+
+		Connection conn = null;
+		boolean sql_error = false;
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			// check videoid
+			stmt = conn.prepareStatement("SELECT COUNT(*) FROM video WHERE video_id=?");
+			stmt.setInt(1, videoid);
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+
+			if (sql_result.getInt(1) != 1){
+				conn.close();
+				return createFailedResult(String.format("video #%d doesn't exist", videoid));
+			}
+
+			// check playlist
+			stmt = conn.prepareStatement("SELECT COUNT(*) FROM playlist WHERE userid=? AND list_id=?");
+			stmt.setInt(1, userid);
+			stmt.setInt(2, listid);
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+
+			if (sql_result.getInt(1) != 1){
+				conn.close();
+				return createFailedResult(String.format("list #%d doesn't exist", listid));
+			}
+
+			// check if video is in the playlist
+			stmt = conn.prepareStatement("SELECT COUNT(*) FROM playlist_video WHERE video_id=? AND list_id=?");
+			stmt.setInt(1, videoid);
+			stmt.setInt(2, listid);
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+
+			boolean in_playlist = (sql_result.getInt(1) == 1);
+
+			//  add video to playlist / delete video fram playlist
+			if (method.equals("add")){
+				if (in_playlist){
+					conn.close();
+					return createFailedResult(String.format("video #%d is already in playlist #%d", videoid, listid));
+				}
+
+				stmt = conn.prepareStatement("INSERT INTO playlist_video(video_id,list_id) VALUES(?,?)");
+				stmt.setInt(1, videoid);
+				stmt.setInt(2, listid);
+				stmt.executeUpdate();
+			} else {
+				if (!in_playlist){
+					conn.close();
+					return createFailedResult(String.format("video #%d isn't in playlist #%d", videoid, listid));
+				}
+
+				stmt = conn.prepareStatement("DELETE FROM playlist_video WHERE (video_id,list_id)=(?,?)");
+				stmt.setInt(1, videoid);
+				stmt.setInt(2, listid);
+				stmt.executeUpdate();
+			}
+
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+			return createFailedResult("internal server error");
+		}
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+		result.response_code = HttpURLConnection.HTTP_OK;
+		result.response.put("result", true);
+		String msg = (method.equals("add"))? "video has been added to playlist" : "video has been removed from playlist";
+		result.response.put("msg", msg);
+
+		return result;
+	}
+
+	private RequestResult managePlaylist(HttpExchange ex, JSONObject data){
+		int userid = getUserID(ex);
+
+		if (userid == 0)
+			return createFailedResult("access denied", HttpURLConnection.HTTP_FORBIDDEN);
+
+		String method;
+		int listid;
+		boolean visible = false;
+
+		try {
+			listid = data.getInt("listid");
+			method = data.getString("method").trim().toLowerCase();
+
+			if (method.equals("change"))
+				visible = data.getBoolean("public");
+		} catch (JSONException e){
+			return createFailedResult("missing/invalid parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		if (method.isEmpty())
+			return createFailedResult("method is empty");
+
+		if (!method.equals("change") && !method.equals("remove"))
+			return createFailedResult("invalid method. must be 'change' or 'remove'");
+
+		if (listid < 1)
+			return createFailedResult("invalid listid");
+
+		Connection conn = null;
+		boolean sql_error = false;
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			// check playlist
+			stmt = conn.prepareStatement("SELECT COUNT(*) FROM playlist WHERE userid=? AND list_id=?");
+			stmt.setInt(1, userid);
+			stmt.setInt(2, listid);
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+
+			if (sql_result.getInt(1) != 1){
+				conn.close();
+				return createFailedResult(String.format("list #%d doesn't exist", listid));
+			}
+
+			// change/change playlist
+			if (method.equals("change")){
+				stmt = conn.prepareStatement("UPDATE playlist SET is_public=? WHERE (userid,list_id) = (?,?)");
+				stmt.setBoolean(1, visible);
+				stmt.setInt(2, userid);
+				stmt.setInt(3, listid);
+			} else {
+				stmt = conn.prepareStatement("SELECT name FROM playlist WHERE userid=? AND list_id=?");
+				stmt.setInt(1, userid);
+				stmt.setInt(2, listid);
+				sql_result = stmt.executeQuery();
+				sql_result.next();
+
+				if (sql_result.getString(1).equals("watch_later")){
+					conn.close();
+					return createFailedResult("'watch_later' playlist cannot be removed");
+				}
+
+				stmt = conn.prepareStatement("DELETE FROM playlist WHERE (userid,list_id) = (?,?)");
+				stmt.setInt(1, userid);
+				stmt.setInt(2, listid);
+			}
+
+			stmt.executeUpdate();
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+			return createFailedResult("internal server error");
+		}
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+
+		result.response_code = HttpURLConnection.HTTP_OK;
+		result.response.put("result", true);
+
+		String msg;
+
+		if (method.equals("remove"))
+			msg = "playlist has been removed";
+		else
+			msg = String.format("playlist has been changed to %s", visible? "public":"private");
+
+		result.response.put("msg", msg);
 
 		return result;
 	}
