@@ -100,6 +100,8 @@ public class RequestHandler implements HttpHandler {
 		func_map.put("deletechannel", (HttpExchange ex, JSONObject data) -> {return deleteChannel(ex, data);});
 		func_map.put("addcomment", (HttpExchange ex, JSONObject data) -> {return addComment(ex, data);});
 		func_map.put("removecomment", (HttpExchange ex, JSONObject data) -> {return removeComment(ex, data);});
+		func_map.put("scorevideo", (HttpExchange ex, JSONObject data) -> {return scoreVideo(ex, data);});
+		func_map.put("scorecomment", (HttpExchange ex, JSONObject data) -> {return scoreComment(ex, data);});
 	}
 
 	private RequestResult createFailedResult(String error){
@@ -782,7 +784,6 @@ public class RequestHandler implements HttpHandler {
 		result.response.put("msg", "comment has been submited");
 
 		return result;
-
 	}
 
 	private RequestResult removeComment(HttpExchange ex, JSONObject data){
@@ -847,5 +848,221 @@ public class RequestHandler implements HttpHandler {
 		return result;
 	}
 
+	private RequestResult scoreVideo(HttpExchange ex, JSONObject data){
+		int userid = getUserID(ex);
 
+		if (userid == 0)
+			return createFailedResult("access denied", HttpURLConnection.HTTP_FORBIDDEN);
+
+		int videoid;
+		String method;
+		String score = null;
+
+		try {
+			videoid = data.getInt("videoid");
+			method = data.getString("method").trim().toLowerCase();
+
+			if (method.equals("add"))
+				score = data.getString("score").trim().toLowerCase();
+
+		} catch (JSONException e){
+			return createFailedResult("missing parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		if (method.isEmpty())
+			return createFailedResult("method is empty");
+
+		if (!method.equals("add") && !method.equals("remove"))
+			return createFailedResult("invalid method. must be 'add' or 'remove'");
+
+		if (videoid < 1)
+			return createFailedResult("invalid videoid");
+
+		if (method.equals("add")){
+			if (score.isEmpty())
+				return createFailedResult("score is empty");
+
+			if (!score.equals("like") && !score.equals("dislike"))
+				return createFailedResult("invalid score. must be 'like' or 'dislike'");
+		}
+
+		Connection conn = null;
+		boolean sql_error = false;
+		boolean delete_okay = false;
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			// check videoid
+			stmt = conn.prepareStatement("SELECT COUNT(*) FROM video WHERE video_id = ?");
+			stmt.setInt(1, videoid);
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+
+			if (sql_result.getInt(1) != 1){
+				conn.close();
+				return createFailedResult(String.format("videoid %d doesn't exist", videoid));
+			}
+
+			// delete old score and submit new one
+			conn.setAutoCommit(false);
+
+			stmt = conn.prepareStatement("DELETE FROM video_score WHERE (userid,video_id) = (?,?)");
+			stmt.setInt(1, userid);
+			stmt.setInt(2, videoid);
+			delete_okay = (stmt.executeUpdate() != 0);
+
+			if (method.equals("add")){
+				stmt = conn.prepareStatement("INSERT INTO video_score VALUES(?,?,?::score_t)");
+				stmt.setInt(1, videoid);
+				stmt.setInt(2, userid);
+				stmt.setString(3, score);
+				stmt.executeUpdate();
+			}
+
+			conn.commit();
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+			return createFailedResult("internal server error");
+		}
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+		result.response_code = HttpURLConnection.HTTP_OK;
+
+		if (method.equals("add")){
+			result.response.put("result", true);
+			result.response.put("msg", "score has been submited");
+		} else if (delete_okay){
+			result.response.put("result", true);
+			result.response.put("msg", "score has been deleted");
+		} else {
+			result.response.put("result", false);
+			result.response.put("msg", "no score found");
+		}
+
+		return result;
+	}
+
+	private RequestResult scoreComment(HttpExchange ex, JSONObject data){
+		int userid = getUserID(ex);
+
+		if (userid == 0)
+			return createFailedResult("access denied", HttpURLConnection.HTTP_FORBIDDEN);
+
+		int comment_id;
+		String method;
+		String score = null;
+
+		try {
+			comment_id = data.getInt("comment_id");
+			method = data.getString("method").trim().toLowerCase();
+
+			if (method.equals("add"))
+				score = data.getString("score").trim().toLowerCase();
+
+		} catch (JSONException e){
+			return createFailedResult("missing parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		if (method.isEmpty())
+			return createFailedResult("method is empty");
+
+		if (!method.equals("add") && !method.equals("remove"))
+			return createFailedResult("invalid method. must be 'add' or 'remove'");
+
+		if (comment_id < 1)
+			return createFailedResult("invalid videoid");
+
+		if (method.equals("add")){
+			if (score.isEmpty())
+				return createFailedResult("score is empty");
+
+			if (!score.equals("like") && !score.equals("dislike"))
+				return createFailedResult("invalid score. must be 'like' or 'dislike'");
+		}
+
+		Connection conn = null;
+		boolean sql_error = false;
+		boolean delete_okay = false;
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			// check videoid
+			stmt = conn.prepareStatement("SELECT COUNT(*) FROM comments WHERE comment_id = ?");
+			stmt.setInt(1, comment_id);
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+
+			if (sql_result.getInt(1) != 1){
+				conn.close();
+				return createFailedResult(String.format("comment %d doesn't exist", comment_id));
+			}
+
+			// delete old score and submit new one
+			conn.setAutoCommit(false);
+
+			stmt = conn.prepareStatement("DELETE FROM comment_score WHERE (userid,comment_id) = (?,?)");
+			stmt.setInt(1, userid);
+			stmt.setInt(2, comment_id);
+			delete_okay = (stmt.executeUpdate() != 0);
+
+			if (method.equals("add")){
+				stmt = conn.prepareStatement("INSERT INTO comment_score VALUES(?,?,?::score_t)");
+				stmt.setInt(1, comment_id);
+				stmt.setInt(2, userid);
+				stmt.setString(3, score);
+				stmt.executeUpdate();
+			}
+
+			conn.commit();
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+			return createFailedResult("internal server error");
+		}
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+		result.response_code = HttpURLConnection.HTTP_OK;
+
+		if (method.equals("add")){
+			result.response.put("result", true);
+			result.response.put("msg", "score has been submited");
+		} else if (delete_okay){
+			result.response.put("result", true);
+			result.response.put("msg", "score has been deleted");
+		} else {
+			result.response.put("result", false);
+			result.response.put("msg", "no score found");
+		}
+
+		return result;
+	}
 }
