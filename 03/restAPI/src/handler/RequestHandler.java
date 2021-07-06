@@ -10,6 +10,7 @@ import java.sql.ResultSet;
 import java.sql.Types;
 import java.util.HashMap;
 import java.util.function.BiFunction;
+import java.util.ArrayList;
 import java.io.*;
 import java.net.HttpURLConnection;
 import org.json.JSONObject;
@@ -105,6 +106,7 @@ public class RequestHandler implements HttpHandler {
 		func_map.put("newplaylist", (HttpExchange ex, JSONObject data) -> {return addPlaylist(ex, data);});
 		func_map.put("vidplaylist", (HttpExchange ex, JSONObject data) -> {return videoPlaylist(ex, data);});
 		func_map.put("mngplaylist", (HttpExchange ex, JSONObject data) -> {return managePlaylist(ex, data);});
+		func_map.put("displayplaylist", (HttpExchange ex, JSONObject data) -> {return displayPlaylist(ex, data);});
 	}
 
 	private RequestResult createFailedResult(String error){
@@ -1363,6 +1365,104 @@ public class RequestHandler implements HttpHandler {
 			msg = String.format("playlist has been changed to %s", visible? "public":"private");
 
 		result.response.put("msg", msg);
+
+		return result;
+	}
+
+	private RequestResult displayPlaylist(HttpExchange ex, JSONObject data){
+		int userid = getUserID(ex);
+		int listid;
+
+		try {
+			listid = data.getInt("listid");
+
+			if (listid < 1)
+				return createFailedResult("invalid listid");
+		} catch (JSONException e){
+			return createFailedResult("missing/invalid parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		Connection conn = null;
+		boolean sql_error = false;
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+		result.response.put("result", true);
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			// check playlist
+			stmt = conn.prepareStatement("SELECT userid, is_public FROM playlist WHERE list_id=?");
+			stmt.setInt(1, listid);
+			sql_result = stmt.executeQuery();
+
+			if (!sql_result.next()){
+				conn.close();
+				return createFailedResult("playlist not found");
+			}
+
+			if ( (sql_result.getInt(1) != userid) && !sql_result.getBoolean(2)){
+				conn.close();
+				return createFailedResult("playlist isn't public");
+			}
+
+			// get list info
+			stmt = conn.prepareStatement("SELECT name, username FROM playlist"
+				+ " INNER JOIN users USING(userid) WHERE list_id=?");
+
+			stmt.setInt(1, listid);
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+
+			JSONObject list_info = new JSONObject();
+			list_info.put("list_name", sql_result.getString(1));
+			list_info.put("created_by", sql_result.getString(2));
+			result.response.put("list_info", list_info);
+
+			// get list videos
+			stmt = conn.prepareStatement("SELECT video_id, username, name FROM playlist_video"
+				+ " INNER JOIN video USING(video_id)"
+				+ " INNER JOIN users USING(userid)"
+				+ " WHERE list_id=?");
+
+			stmt.setInt(1, listid);
+			sql_result = stmt.executeQuery();
+
+			ArrayList<JSONObject> videos = new ArrayList<JSONObject>();
+			int video_number = 0;
+
+			while(sql_result.next()){
+				JSONObject video = new JSONObject();
+				video.put("videoid", sql_result.getInt(1));
+				video.put("uploader", sql_result.getString(2));
+				video.put("video_name", sql_result.getString(3));
+
+				videos.add(video);
+				++video_number;
+			}
+
+			result.response.put("videos", videos);
+			result.response.put("video_count", video_number);
+
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+			System.out.println(e);
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+			return createFailedResult("internal server error");
+		}
 
 		return result;
 	}
