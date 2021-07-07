@@ -252,14 +252,13 @@ public class RequestHandler implements HttpHandler {
 			stmt.setString(1, username);
 			stmt.setString(2, password);
 			sql_result = stmt.executeQuery();
-			sql_result.next();
 
-			userid = sql_result.getInt(1);
-
-			if (userid == 0){
+			if(!sql_result.next()){
 				conn.close();
 				return createFailedResult("invalid username/password");
 			}
+
+			userid = sql_result.getInt(1);
 
 			// generate token
 			stmt = conn.prepareStatement("SELECT encode(digest(now()::text || random() || ?, ?), ?)");
