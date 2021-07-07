@@ -100,6 +100,7 @@ public class RequestHandler implements HttpHandler {
 		func_map.put("newchannel", (HttpExchange ex, JSONObject data) -> {return createChannel(ex, data);});
 		func_map.put("deletechannel", (HttpExchange ex, JSONObject data) -> {return deleteChannel(ex, data);});
 		func_map.put("displaychannel", (HttpExchange ex, JSONObject data) -> {return displayChannel(ex, data);});
+		func_map.put("channelsubscribe", (HttpExchange ex, JSONObject data) -> {return subscribeChannel(ex, data);});
 		func_map.put("addcomment", (HttpExchange ex, JSONObject data) -> {return addComment(ex, data);});
 		func_map.put("removecomment", (HttpExchange ex, JSONObject data) -> {return removeComment(ex, data);});
 		func_map.put("scorevideo", (HttpExchange ex, JSONObject data) -> {return scoreVideo(ex, data);});
@@ -1983,6 +1984,103 @@ public class RequestHandler implements HttpHandler {
 			}
 			return createFailedResult("keywords format is not valid");
 		}
+
+		return result;
+	}
+
+	private RequestResult subscribeChannel(HttpExchange ex, JSONObject data){
+		int userid = getUserID(ex);
+
+		if (userid == 0)
+			return createFailedResult("access denied", HttpURLConnection.HTTP_FORBIDDEN);
+
+		int channel_id;
+		boolean subscribe;
+
+		try {
+			channel_id = data.getInt("channel_id");
+
+			if (channel_id < 1)
+				return createFailedResult("invalid channel_id");
+
+			subscribe = data.getBoolean("subscribe");
+		} catch (JSONException e){
+			return createFailedResult("missing/invalid parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		Connection conn = null;
+		boolean sql_error = false;
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			// check channel
+			stmt = conn.prepareStatement("SELECT COUNT(*) FROM channel WHERE channel_id = ?");
+			stmt.setInt(1, channel_id);
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+
+			if (sql_result.getInt(1) == 0){
+				conn.close();
+				return createFailedResult("channel not found");
+			}
+
+			// check if user is subscribed
+			stmt = conn.prepareStatement("SELECT COUNT(*) FROM channel_subscription WHERE (userid,channel_id) = (?,?)");
+			stmt.setInt(1, userid);
+			stmt.setInt(2, channel_id);
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+
+			boolean is_subscribed = (sql_result.getInt(1) == 1);
+
+			if (subscribe && is_subscribed){
+				conn.close();
+				return createFailedResult("you are already subscribed to this channel");
+			}
+
+			if (!subscribe && !is_subscribed){
+				conn.close();
+				return createFailedResult("you're not subscribed to this channel");
+			}
+
+			if (subscribe)
+				stmt = conn.prepareStatement("INSERT INTO channel_subscription(userid, channel_id) VALUES(?,?)");
+			else
+				stmt = conn.prepareStatement("DELETE FROM channel_subscription WHERE (userid, channel_id) = (?,?)");
+
+			stmt.setInt(1, userid);
+			stmt.setInt(2, channel_id);
+
+			stmt.executeUpdate();
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+			return createFailedResult("internal server error");
+		}
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+
+		result.response_code = HttpURLConnection.HTTP_OK;
+		result.response.put("result", true);
+
+		if (subscribe)
+			result.response.put("msg", "user has been subscribed");
+		else
+			result.response.put("msg", "user has been unsubscribed");
 
 		return result;
 	}
