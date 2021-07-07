@@ -394,7 +394,11 @@ public class RequestHandler implements HttpHandler {
 			stmt.setString(3, token);
 
 			sql_result = stmt.executeQuery();
-			sql_result.next();
+			if (!sql_result.next()){
+				conn.close();
+				return 0;
+			}
+
 			userid = sql_result.getInt(1);
 
 			conn.close();
