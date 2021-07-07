@@ -107,6 +107,7 @@ public class RequestHandler implements HttpHandler {
 		func_map.put("vidplaylist", (HttpExchange ex, JSONObject data) -> {return videoPlaylist(ex, data);});
 		func_map.put("mngplaylist", (HttpExchange ex, JSONObject data) -> {return managePlaylist(ex, data);});
 		func_map.put("displayplaylist", (HttpExchange ex, JSONObject data) -> {return displayPlaylist(ex, data);});
+		func_map.put("displayuserinfo", (HttpExchange ex, JSONObject data) -> {return displayUserInfo(ex, data);});
 	}
 
 	private RequestResult createFailedResult(String error){
@@ -766,7 +767,6 @@ public class RequestHandler implements HttpHandler {
 			conn.close();
 		} catch (SQLException e){
 			sql_error = true;
-			System.out.println(e);
 		}
 
 		if (sql_error){
@@ -1446,6 +1446,170 @@ public class RequestHandler implements HttpHandler {
 
 			result.response.put("videos", videos);
 			result.response.put("video_count", video_number);
+
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+			return createFailedResult("internal server error");
+		}
+
+		return result;
+	}
+
+	private RequestResult displayUserInfo(HttpExchange ex, JSONObject data){
+		int userid = getUserID(ex);
+		int target_uid;
+
+		try {
+			target_uid = data.getInt("userid");
+
+			if (target_uid < 1)
+				return createFailedResult("invalid userid");
+		} catch (JSONException e){
+			return createFailedResult("missing/invalid parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		Connection conn = null;
+		boolean sql_error = false;
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+		result.response.put("result", true);
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+			String query;
+
+			// check user
+			stmt = conn.prepareStatement("SELECT COUNT(*) FROM users WHERE userid=?");
+			stmt.setInt(1, target_uid);
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+
+			if (sql_result.getInt(1) != 1){
+				conn.close();
+				return createFailedResult(String.format("user #%d doesn't exist", target_uid));
+			}
+
+			boolean all_info = (userid == target_uid);
+
+			// get user info
+			stmt = conn.prepareStatement("SELECT username, reg_date, has_avatar FROM users WHERE userid=?");
+
+			stmt.setInt(1, target_uid);
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+
+			result.response.put("username", sql_result.getString(1));
+			result.response.put("register_date", sql_result.getString(2));
+
+			if (sql_result.getBoolean(3))
+				result.response.put("avatar", String.format("%s_%d.jpg", sql_result.getString(1), target_uid));
+			else
+				result.response.put("avatar", JSONObject.NULL);
+
+			// get videos
+			stmt = conn.prepareStatement("SELECT video_id, name, upload_date FROM video"
+				+" INNER JOIN users USING(userid) WHERE userid=? ORDER BY upload_date DESC");
+			stmt.setInt(1, target_uid);
+			sql_result = stmt.executeQuery();
+
+			ArrayList<JSONObject> videos = new ArrayList<JSONObject>();
+			int video_number = 0;
+
+			while(sql_result.next()){
+				JSONObject video = new JSONObject();
+				video.put("videoid", sql_result.getInt(1));
+				video.put("video_name", sql_result.getString(2));
+				video.put("upload_time", sql_result.getString(3));
+
+				videos.add(video);
+				++video_number;
+			}
+
+			result.response.put("videos", videos);
+			result.response.put("video_count", video_number);
+
+			// get playlists
+			if (all_info){
+				stmt = conn.prepareStatement("SELECT list_id, name, is_public FROM playlist WHERE userid=?");
+			} else {
+				stmt = conn.prepareStatement("SELECT list_id, name, is_public FROM playlist WHERE userid=? AND is_public=?");
+				stmt.setBoolean(2, true);
+			}
+
+			stmt.setInt(1, target_uid);
+			sql_result = stmt.executeQuery();
+
+			ArrayList<JSONObject> playlists = new ArrayList<JSONObject>();
+			int list_number = 0;
+
+			while(sql_result.next()){
+				JSONObject playlist = new JSONObject();
+				playlist.put("playlist_id", sql_result.getInt(1));
+				playlist.put("list_name", sql_result.getString(2));
+				playlist.put("is_public", sql_result.getBoolean(3));
+
+				playlists.add(playlist);
+				++list_number;
+			}
+
+			result.response.put("playlists", playlists);
+			result.response.put("playlist_count", list_number);
+
+			// get channels
+			stmt = conn.prepareStatement("SELECT channel_id, name FROM channel WHERE userid=?");
+			stmt.setInt(1, target_uid);
+			sql_result = stmt.executeQuery();
+
+			ArrayList<JSONObject> channels = new ArrayList<JSONObject>();
+			int channel_number = 0;
+
+			while(sql_result.next()){
+				JSONObject channel = new JSONObject();
+				channel.put("channel_id", sql_result.getInt(1));
+				channel.put("channel_name", sql_result.getString(2));
+
+				channels.add(channel);
+				++channel_number;
+			}
+
+			result.response.put("channels", channels);
+			result.response.put("channel_count", channel_number);
+
+			// get subscribed channels
+			if (all_info){
+				stmt = conn.prepareStatement("SELECT channel.channel_id, name FROM channel"
+					+ " INNER JOIN channel_subscription USING(userid)"
+					+ " WHERE userid=?");
+
+				stmt.setInt(1, target_uid);
+				sql_result = stmt.executeQuery();
+
+				ArrayList<JSONObject> subchannels = new ArrayList<JSONObject>();
+
+				while(sql_result.next()){
+					JSONObject subchannel = new JSONObject();
+					subchannel.put("channel_id", sql_result.getInt(1));
+					subchannel.put("channel_name", sql_result.getString(2));
+
+					subchannels.add(subchannel);
+				}
+
+				result.response.put("subscribed_channels", subchannels);
+			}
 
 			conn.close();
 		} catch (SQLException e){
