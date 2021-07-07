@@ -63,7 +63,7 @@ CREATE TABLE channel_subscription (
 
 	PRIMARY KEY (channel_id, userid),
 	FOREIGN KEY (userid) REFERENCES users(userid),
-	FOREIGN KEY (channel_id) REFERENCES channel(channel_id)
+	FOREIGN KEY (channel_id) REFERENCES channel(channel_id) ON DELETE CASCADE
 );
 
 /* check video owner = channel owner */
