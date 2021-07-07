@@ -1,0 +1,185 @@
+register:
+
+curl -X POST localhost:8080?register \
+--data '{
+	"username":"<username>",
+	"password":"<password>",
+	"email":"<email>"
+}'
+-------------------------------------------------
+login:
+
+curl -X POST localhost:8080?login \
+--data '{
+	"username":"<username>",
+	"password":"<password>"
+}'
+-------------------------------------------------
+logout:
+
+curl localhost:8080?logout \
+-H 'X-TOKEN:<token>'
+-------------------------------------------------
+upload video:
+
+curl -X POST localhost:8080?newvideo \
+-H 'X-TOKEN:<token>' \
+--data '{
+	"title":"<title>",
+	"filename":"<filename>",
+	"description":"<description>"
+}'
+-------------------------------------------------
+delete video:
+
+curl -X POST localhost:8080?deletevideo \
+-H 'X-TOKEN:<token>' \
+--data '{
+	"videoid":<videoid>
+}'
+-------------------------------------------------
+create channel:
+
+curl -X POST localhost:8080?newchannel \
+-H 'X-TOKEN:<token>' \
+--data '{
+	"name":"<name>",
+	"description":"<videoid>",
+	"imagename":"<imagename>"
+}'
+-------------------------------------------------
+delete channel:
+
+curl -X POST localhost:8080?deletechannel \
+-H 'X-TOKEN:<token>' \
+--data '{
+	"channel_id":<id>
+}'
+-------------------------------------------------
+submit comment:
+note: 'reply_to' is optional
+
+curl -X POST localhost:8080?addcomment \
+-H 'X-TOKEN:<token>' \
+--data '{
+	"videoid":<viedoid>,
+	"comment":"<comment>",
+	"reply_to":<comment_id>
+}'
+-------------------------------------------------
+delete comment:
+
+curl -X POST localhost:8080?removecomment \
+-H 'X-TOKEN:<token>' \
+--data '{
+	"comment_id":<comment_id>
+}'
+-------------------------------------------------
+add/change/delete video score (like/dislike)
+
+method values: "add" (for both add/change) or "delete"
+score values: "like" or "dislike"
+
+curl -X POST localhost:8080?scorevideo \
+-H 'X-TOKEN:<token>' \
+--data '{
+	"method":"<method>",
+	"videoid":<videoid>,
+	"score":"<score>"
+}'
+-------------------------------------------------
+add/change/delete comment score (like/dislike)
+
+method values: "add" (for both add/change) or "delete"
+score values: "like" or "dislike"
+
+curl -X POST localhost:8080?scorecomment \
+-H 'X-TOKEN:<token>' \
+--data '{
+	"method":"<method>",
+	"videoid":<videoid>,
+	"score":"<score>"
+}'
+-------------------------------------------------
+new playlist
+
+curl -X POST localhost:8080?newplaylist \
+-H 'X-TOKEN:<token>' \
+--data '{
+	"listname":<listname>
+}'
+-------------------------------------------------
+add/remove video to/from playlist
+
+method values: "add"  or "delete"
+
+curl -X POST localhost:8080?vidplaylist \
+-H 'X-TOKEN:<token>' \
+--data '{
+	"method":"<method>",
+	"videoid":<videoid>,
+	"listid":<listid>
+}'
+-------------------------------------------------
+delete playlist / change visibility
+
+method values: "remove" or "change" (+ "public" parameter)
+
+curl -X POST localhost:8080?mngplaylist \
+-H 'X-TOKEN:<token>' \
+--data '{
+	"method":"<method>",
+	"listid":<listid>,
+	"public":<true/false>
+}'
+-------------------------------------------------
+display playlist
+
+X-TOKEN header is optional if playlist is public
+
+curl -X POST localhost:8080?displayplaylist \
+-H 'X-TOKEN:<token>' \
+--data '{
+	"listid":<listid>
+}'
+-------------------------------------------------
+display userinfo
+
+X-TOKEN header is optional
+
+curl -X POST localhost:8080?displayuserinfo \
+-H 'X-TOKEN:<token>' \
+--data '{
+	"userid":<userid>
+}'
+-------------------------------------------------
+display video
+
+curl -X POST localhost:8080?getvideo \
+--data '{
+	"videoid":<videoid>
+}'
+-------------------------------------------------
+display channel details
+
+curl -X POST localhost:8080?displaychannel \
+--data '{
+	"channel_id":<channel_id>
+}'
+-------------------------------------------------
+search
+
+curl -X POST localhost:8080?displaychannel \
+--data '{
+	"keywods":"<keywords>"
+}'
+-------------------------------------------------
+subscribe / unsubscribe channel
+
+curl -X POST localhost:8080?channelsubscribe \
+-H 'X-TOKEN:<token>' \
+--data '{
+	"channel_id":<channel_id>,
+	"subscribe":<true/false>
+}'
+
