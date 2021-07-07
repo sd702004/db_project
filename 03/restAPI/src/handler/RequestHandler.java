@@ -99,6 +99,7 @@ public class RequestHandler implements HttpHandler {
 		func_map.put("deletevideo", (HttpExchange ex, JSONObject data) -> {return deleteVideo(ex, data);});
 		func_map.put("newchannel", (HttpExchange ex, JSONObject data) -> {return createChannel(ex, data);});
 		func_map.put("deletechannel", (HttpExchange ex, JSONObject data) -> {return deleteChannel(ex, data);});
+		func_map.put("displaychannel", (HttpExchange ex, JSONObject data) -> {return displayChannel(ex, data);});
 		func_map.put("addcomment", (HttpExchange ex, JSONObject data) -> {return addComment(ex, data);});
 		func_map.put("removecomment", (HttpExchange ex, JSONObject data) -> {return removeComment(ex, data);});
 		func_map.put("scorevideo", (HttpExchange ex, JSONObject data) -> {return scoreVideo(ex, data);});
@@ -1615,7 +1616,6 @@ public class RequestHandler implements HttpHandler {
 			conn.close();
 		} catch (SQLException e){
 			sql_error = true;
-			System.out.println(e);
 		}
 
 		if (sql_error){
@@ -1737,6 +1737,114 @@ public class RequestHandler implements HttpHandler {
 			stmt = conn.prepareStatement("UPDATE video SET total_watch = total_watch+1 WHERE video_id=?");
 			stmt.setInt(1, videoid);
 			stmt.executeUpdate();
+
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+			return createFailedResult("internal server error");
+		}
+
+		return result;
+	}
+
+	private RequestResult displayChannel(HttpExchange ex, JSONObject data){
+		int channel_id;
+
+		try {
+			channel_id = data.getInt("channel_id");
+
+			if (channel_id  < 1)
+				return createFailedResult("invalid channel_id");
+		} catch (JSONException e){
+			return createFailedResult("missing/invalid parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		Connection conn = null;
+		boolean sql_error = false;
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+		result.response.put("result", true);
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			// get channel info
+			stmt = conn.prepareStatement("SELECT name, username, description, creation_date, userid FROM channel"
+				+ " INNER JOIN users USING(userid) WHERE channel_id=?");
+
+			stmt.setInt(1, channel_id);
+			sql_result = stmt.executeQuery();
+
+			if (!sql_result.next()){
+				conn.close();
+				return createFailedResult(String.format("channel #%d doesn't exist", channel_id));
+			}
+
+			result.response.put("name", sql_result.getString(1));
+			result.response.put("owner", sql_result.getString(2));
+			result.response.put("description", sql_result.getString(3));
+			result.response.put("creation_date", sql_result.getString(4));
+			result.response.put("channel_picture", String.format("%d_%d.jpg", sql_result.getInt(5), channel_id));
+
+			// get videos
+			stmt = conn.prepareStatement("SELECT video_id, name FROM channel_video"
+				+ " INNER JOIN video USING(video_id)"
+				+ " INNER JOIN users USING(userid)"
+				+ " WHERE channel_id=? ORDER BY upload_date DESC");
+
+			stmt.setInt(1, channel_id);
+			sql_result = stmt.executeQuery();
+
+			int total_videos = 0;
+			ArrayList<JSONObject> videos = new ArrayList<JSONObject>();
+
+			while(sql_result.next()){
+				JSONObject video = new JSONObject();
+				video.put("video_id", sql_result.getInt(1));
+				video.put("video_name", sql_result.getString(2));
+
+				videos.add(video);
+				++total_videos;
+			}
+
+			result.response.put("videos", videos);
+			result.response.put("video_count", total_videos);
+
+			// get subscribers
+			stmt = conn.prepareStatement("SELECT userid, username FROM channel_subscription"
+				+ " INNER JOIN users USING(userid)"
+				+ " WHERE channel_id = ?");
+
+			stmt.setInt(1, channel_id);
+			sql_result = stmt.executeQuery();
+
+			int total_subs = 0;
+			ArrayList<JSONObject> subs = new ArrayList<JSONObject>();
+
+			while(sql_result.next()){
+				JSONObject sub = new JSONObject();
+				sub.put("userid", sql_result.getInt(1));
+				sub.put("username", sql_result.getString(2));
+
+				subs.add(sub);
+				++total_subs;
+			}
+
+			result.response.put("subscribers", subs);
+			result.response.put("subscribers_count", total_subs);
 
 			conn.close();
 		} catch (SQLException e){
