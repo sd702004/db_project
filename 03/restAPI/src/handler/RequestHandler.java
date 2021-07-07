@@ -110,6 +110,7 @@ public class RequestHandler implements HttpHandler {
 		func_map.put("displayplaylist", (HttpExchange ex, JSONObject data) -> {return displayPlaylist(ex, data);});
 		func_map.put("displayuserinfo", (HttpExchange ex, JSONObject data) -> {return displayUserInfo(ex, data);});
 		func_map.put("getvideo", (HttpExchange ex, JSONObject data) -> {return getVideo(ex, data);}); // ++video_watch
+		func_map.put("search", (HttpExchange ex, JSONObject data) -> {return search(ex, data);}); // ++video_watch
 	}
 
 	private RequestResult createFailedResult(String error){
@@ -1861,6 +1862,126 @@ public class RequestHandler implements HttpHandler {
 				}
 			}
 			return createFailedResult("internal server error");
+		}
+
+		return result;
+	}
+
+	private RequestResult search(HttpExchange ex, JSONObject data){
+		String keywords;
+
+		try {
+			keywords = data.getString("keywords").trim();
+
+			if (keywords.isEmpty())
+				return createFailedResult("empty keywords");
+		} catch (JSONException e){
+			return createFailedResult("missing/invalid parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		keywords = keywords.replaceAll(" ", " | ");
+
+
+		Connection conn = null;
+		boolean sql_error = false;
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+		result.response.put("result", true);
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			// search videos
+			stmt = conn.prepareStatement("SELECT video_id, name, username"
+			+ " FROM video INNER JOIN users USING(userid)"
+			+ " WHERE name @@ to_tsquery(?) LIMIT 10");
+
+			stmt.setString(1, keywords);
+			sql_result = stmt.executeQuery();
+
+			int total_videos = 0;
+			ArrayList<JSONObject> videos = new ArrayList<JSONObject>();
+
+			while (sql_result.next()){
+				JSONObject video = new JSONObject();
+				video.put("video_id", sql_result.getInt(1));
+				video.put("video_name", sql_result.getString(2));
+				video.put("uploader", sql_result.getString(3));
+
+				videos.add(video);
+				++total_videos;
+			}
+
+			result.response.put("videos", videos);
+			result.response.put("video_count", total_videos);
+
+			// search channels
+			stmt = conn.prepareStatement("SELECT channel_id, name, description, username FROM channel"
+				+ " INNER JOIN users USING(userid)"
+				+ " WHERE name @@ to_tsquery(?) LIMIT 10");
+
+			stmt.setString(1, keywords);
+			sql_result = stmt.executeQuery();
+
+			int total_channels = 0;
+			ArrayList<JSONObject> channels = new ArrayList<JSONObject>();
+
+			while (sql_result.next()){
+				JSONObject channel = new JSONObject();
+				channel.put("channel_id", sql_result.getInt(1));
+				channel.put("channel_name", sql_result.getString(2));
+				channel.put("description", sql_result.getString(3));
+				channel.put("owner", sql_result.getString(4));
+
+				channels.add(channel);
+				++total_channels;
+			}
+
+			result.response.put("channels", channels);
+			result.response.put("channel_count", total_channels);
+
+			// public playlists
+			stmt = conn.prepareStatement("SELECT list_id, name, username FROM playlist"
+				+ " INNER JOIN users USING(userid)"
+				+ " WHERE is_public=? AND name @@ to_tsquery(?) LIMIT 10");
+
+			stmt.setBoolean(1, true);
+			stmt.setString(2, keywords);
+			sql_result = stmt.executeQuery();
+
+			int total_lists = 0;
+			ArrayList<JSONObject> plists = new ArrayList<JSONObject>();
+
+			while (sql_result.next()){
+				JSONObject plist = new JSONObject();
+				plist.put("list_id", sql_result.getInt(1));
+				plist.put("playlist_name", sql_result.getString(2));
+				plist.put("owner", sql_result.getString(3));
+
+				plists.add(plist);
+				++total_lists;
+			}
+
+			result.response.put("playlists", plists);
+			result.response.put("playlist_count", total_lists);
+
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+			return createFailedResult("keywords format is not valid");
 		}
 
 		return result;
