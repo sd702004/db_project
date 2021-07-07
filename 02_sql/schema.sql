@@ -38,21 +38,12 @@ CREATE TABLE video (
 	description TEXT NOT NULL,
 	duration INTEGER NOT NULL CHECK (duration > 0) /* unit: seconds */,
 	upload_date TIMESTAMP NOT NULL,
+	total_watch INTEGER NOT NULL DEFAULT 0,
 
 	FOREIGN KEY (userid) REFERENCES users(userid)
 );
 
 CREATE INDEX ON video (name);
-
-CREATE TABLE video_watch (
-	watch_id SERIAL PRIMARY KEY,
-	video_id INTEGER NOT NULL,
-	userid INTEGER NOT NULL,
-	watch_date TIMESTAMP NOT NULL,
-
-	FOREIGN KEY (video_id) REFERENCES video(video_id),
-	FOREIGN KEY (userid) REFERENCES users(userid)
-);
 
 CREATE TABLE channel (
 	channel_id SERIAL PRIMARY KEY,

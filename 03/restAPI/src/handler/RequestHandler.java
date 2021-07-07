@@ -108,6 +108,7 @@ public class RequestHandler implements HttpHandler {
 		func_map.put("mngplaylist", (HttpExchange ex, JSONObject data) -> {return managePlaylist(ex, data);});
 		func_map.put("displayplaylist", (HttpExchange ex, JSONObject data) -> {return displayPlaylist(ex, data);});
 		func_map.put("displayuserinfo", (HttpExchange ex, JSONObject data) -> {return displayUserInfo(ex, data);});
+		func_map.put("getvideo", (HttpExchange ex, JSONObject data) -> {return getVideo(ex, data);}); // ++video_watch
 	}
 
 	private RequestResult createFailedResult(String error){
@@ -1610,6 +1611,132 @@ public class RequestHandler implements HttpHandler {
 
 				result.response.put("subscribed_channels", subchannels);
 			}
+
+			conn.close();
+		} catch (SQLException e){
+			sql_error = true;
+			System.out.println(e);
+		}
+
+		if (sql_error){
+			if (conn != null){
+				try {
+					conn.close();
+				} catch (SQLException e){
+					// do nothing
+				}
+			}
+			return createFailedResult("internal server error");
+		}
+
+		return result;
+	}
+
+	private RequestResult getVideo(HttpExchange ex, JSONObject data){
+		int videoid;
+
+		try {
+			videoid = data.getInt("videoid");
+
+			if (videoid < 1)
+				return createFailedResult("invalid videoid");
+		} catch (JSONException e){
+			return createFailedResult("missing/invalid parameters", HttpURLConnection.HTTP_BAD_REQUEST);
+		}
+
+		Connection conn = null;
+		boolean sql_error = false;
+
+		RequestResult result = new RequestResult();
+		result.response = new JSONObject();
+		result.response.put("result", true);
+
+		try {
+			conn = dbhandler.getConnection();
+			PreparedStatement stmt;
+			ResultSet sql_result;
+
+			// get video information
+			stmt = conn.prepareStatement("SELECT name, filename, userid, username,"
+				+ " description, duration, upload_date, total_watch FROM video"
+				+ " INNER JOIN users USING (userid)"
+				+ " WHERE video_id = ?");
+			stmt.setInt(1, videoid);
+			sql_result = stmt.executeQuery();
+
+			if (!sql_result.next()){
+				conn.close();
+				return createFailedResult(String.format("video #%d doesn't exist", videoid));
+			}
+
+			result.response.put("videoname", sql_result.getString(1));
+			result.response.put("filename", sql_result.getString(2));
+			result.response.put("uploader_id", sql_result.getInt(3));
+			result.response.put("uploader_username", sql_result.getString(4));
+			result.response.put("description", sql_result.getString(5));
+			result.response.put("video_duration", sql_result.getInt(6));
+			result.response.put("upload_date", sql_result.getString(7));
+			result.response.put("total_views", sql_result.getInt(8) + 1);
+
+			// get likes/dislikes
+			stmt = conn.prepareStatement("SELECT COUNT(*) FROM video_score WHERE video_id=? AND score=?::SCORE_T");
+			stmt.setInt(1, videoid);
+			stmt.setString(2, "like");
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+			result.response.put("likes", sql_result.getInt(1));
+
+			stmt.setString(2, "dislike");
+			sql_result = stmt.executeQuery();
+			sql_result.next();
+			result.response.put("dislikes", sql_result.getInt(1));
+
+			// get comments
+			stmt = conn.prepareStatement("SELECT comment_id, parent_id, username, comment, submit_date FROM comments"
+				+ " INNER JOIN users USING(userid) WHERE video_id=? ORDER BY submit_date DESC");
+			stmt.setInt(1, videoid);
+			sql_result = stmt.executeQuery();
+
+			ArrayList<JSONObject> comments = new ArrayList<JSONObject>();
+
+			PreparedStatement local_stmt;
+
+			local_stmt = conn.prepareStatement("SELECT COUNT(*) FROM comment_score"
+				+ " WHERE comment_id=? AND score=?::SCORE_T");
+
+			while(sql_result.next()){
+				int comment_id = sql_result.getInt(1);
+				JSONObject comment = new JSONObject();
+
+				comment.put("comment_id", comment_id);
+				comment.put("reply_to", sql_result.getInt(2));
+				comment.put("sender", sql_result.getString(3));
+				comment.put("comment", sql_result.getString(4));
+				comment.put("date", sql_result.getString(5));
+
+				ResultSet lsql_result;
+
+				local_stmt.setInt(1, comment_id);
+
+				local_stmt.setString(2, "like");
+				lsql_result = local_stmt.executeQuery();
+				lsql_result.next();
+				comment.put("likes", lsql_result.getInt(1));
+
+				local_stmt.setString(2, "dislike");
+				lsql_result = local_stmt.executeQuery();
+				lsql_result.next();
+				comment.put("dislikes", lsql_result.getInt(1));
+
+				comments.add(comment);
+			}
+
+			result.response.put("comments", comments);
+
+			// add to watch number
+			stmt = conn.prepareStatement("UPDATE video SET total_watch = total_watch+1 WHERE video_id=?");
+			stmt.setInt(1, videoid);
+			stmt.executeUpdate();
 
 			conn.close();
 		} catch (SQLException e){
